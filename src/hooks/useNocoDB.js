@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { buildNocoUrl, mapRecordToRow, updateNocoRecord } from '../services/nocodb'
+import { buildNocoUrl, mapRecordToRow, updateNocoRecord, fetchNocoJSON } from '../services/nocodb'
 
 export function useNocoDB({ baseUrl, viewId, ALL }) {
   const token = import.meta.env.VITE_NOCODB_TOKEN
@@ -19,16 +19,7 @@ export function useNocoDB({ baseUrl, viewId, ALL }) {
         setLoading(true)
         setError(null)
         const url = buildNocoUrl(baseUrl, { clientFilter, ALL, viewId })
-        // Debug: log full GET request details
-        console.log('[NocoDB][GET] url', url.toString(), {
-          params: Object.fromEntries(url.searchParams.entries()),
-          headers: { 'xc-token': token ? token.slice(0,4) + '...' : 'missing' }
-        })
-        const res = await fetch(url.toString(), { headers: { 'xc-token': token }, signal: controller.signal })
-        console.log('[NocoDB][GET] status', res.status, 'ok', res.ok)
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        const data = await res.json().catch(() => ({}))
-        console.log('[NocoDB][GET] response', data)
+        const data = await fetchNocoJSON(url.toString(), { method: 'GET', token, signal: controller.signal, tag: 'GET' })
         const list = Array.isArray(data) ? (data[0]?.list || []) : (data?.list || [])
         const mapped = (list || []).map(mapRecordToRow)
         setRows(mapped)
@@ -55,9 +46,7 @@ export function useNocoDB({ baseUrl, viewId, ALL }) {
     const loadClients = async () => {
       try {
         const url = buildNocoUrl(baseUrl, { clientFilter: ALL, ALL, viewId })
-        const res = await fetch(url.toString(), { headers: { 'xc-token': token }, signal: controller.signal })
-        if (!res.ok) return
-        const data = await res.json().catch(() => ({}))
+        const data = await fetchNocoJSON(url.toString(), { method: 'GET', token, signal: controller.signal, tag: 'GET:clients' })
         const list = Array.isArray(data) ? (data[0]?.list || []) : (data?.list || [])
         const s = new Set()
         for (const rec of list) if (rec.client) s.add(rec.client)

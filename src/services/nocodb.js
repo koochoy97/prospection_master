@@ -35,6 +35,57 @@ function cryptoRandom() {
   }
 }
 
+function redactToken(token) {
+  return token ? token.slice(0, 4) + '...' : 'missing'
+}
+
+// Generic helper to log every step of a NocoDB request and return parsed JSON
+export async function fetchNocoJSON(url, { method = 'GET', token, headers = {}, body, signal, tag } = {}) {
+  const href = typeof url === 'string' ? url : url.toString()
+  const label = tag || method
+  const start = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()
+  const logBase = `[NocoDB][${label}]`
+  try {
+    // Prepare headers (ensure Accept JSON; add token if present)
+    const reqHeaders = { Accept: 'application/json', ...headers }
+    if (token) reqHeaders['xc-token'] = token
+
+    // Log request details
+    console.log(`${logBase} request`, href, {
+      method,
+      headers: { ...reqHeaders, 'xc-token': redactToken(token) },
+      body: body && typeof body !== 'string' ? body : body || undefined,
+    })
+
+    // Prepare body
+    const reqBody = typeof body === 'string' || body == null ? body : JSON.stringify(body)
+
+    const res = await fetch(href, { method, headers: reqHeaders, body: reqBody, signal })
+    const duration = ((typeof performance !== 'undefined' && performance.now() ? performance.now() : Date.now()) - start)
+    console.log(`${logBase} status`, res.status, 'ok', res.ok, `(${Math.round(duration)}ms)`) // status line
+
+    let data = null
+    try {
+      data = await res.json()
+      console.log(`${logBase} response`, data)
+    } catch (e) {
+      console.warn(`${logBase} response parse failed`, e?.message || e)
+    }
+
+    if (!res.ok) {
+      const err = new Error(`HTTP ${res.status}`)
+      // Surface error payload for easier debugging
+      err.payload = data
+      throw err
+    }
+
+    return data
+  } catch (e) {
+    console.warn(`${logBase} error`, e)
+    throw e
+  }
+}
+
 export async function updateNocoRecord(baseUrl, token, recordId, payload, signal) {
   // NocoDB v2 PATCH: /api/v2/tables/{tableId}/records with body [{ Id, ...fields }]
   const m = /tables\/([^/]+)\/records/.exec(baseUrl)
@@ -44,20 +95,15 @@ export async function updateNocoRecord(baseUrl, token, recordId, payload, signal
   u.pathname = `/api/v2/tables/${tableId}/records`
   const body = [{ id: typeof recordId === 'string' ? Number(recordId) : recordId, ...payload }]
 
-  // Debug
-  console.log('[NocoDB][PATCH]', u.toString(), body, {
-    headers: { 'Content-Type': 'application/json', 'xc-token': token ? token.slice(0,4)+'...' : 'missing' },
-    method: 'PATCH'
-  })
-
-  const res = await fetch(u.toString(), {
+  const data = await fetchNocoJSON(u.toString(), {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'xc-token': token },
-    body: JSON.stringify(body),
+    token,
+    headers: { 'Content-Type': 'application/json' },
+    body,
     signal,
+    tag: 'PATCH',
   })
-  if (!res.ok) throw new Error(`Update failed HTTP ${res.status}`)
-  return res.json().catch(() => ({}))
+  return data || {}
 }
 
 export async function createNocoRecord(baseUrl, token, payload, signal) {
@@ -67,19 +113,14 @@ export async function createNocoRecord(baseUrl, token, payload, signal) {
   if (!tableId) throw new Error('Missing tableId')
   const u = new URL(baseUrl)
   u.pathname = `/api/v2/tables/${tableId}/records`
-  console.log('[NocoDB][CREATE] POST', u.toString(), payload, {
-    headers: { 'Content-Type': 'application/json', 'xc-token': token ? token.slice(0,4)+'...' : 'missing' }
-  })
-  const res = await fetch(u.toString(), {
+  const data = await fetchNocoJSON(u.toString(), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'xc-token': token },
-    body: JSON.stringify(payload),
+    token,
+    headers: { 'Content-Type': 'application/json' },
+    body: payload,
     signal,
+    tag: 'CREATE'
   })
-  console.log('[NocoDB][CREATE] status', res.status)
-  if (!res.ok) throw new Error(`Create failed HTTP ${res.status}`)
-  const data = await res.json().catch(() => ({}))
-  console.log('[NocoDB][CREATE] response', data)
   // Response can be object or array; normalize to first object
   const rec = Array.isArray(data) ? data[0] : data
   return rec
