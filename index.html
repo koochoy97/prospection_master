@@ -7,7 +7,18 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Client-side HTTPS enforcement as a last resort (behind proxies)
+      (function() {
+        try {
+          var isLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+          if (location.protocol === 'http:' && !isLocal) {
+            var target = 'https://' + location.host + location.pathname + location.search + location.hash
+            location.replace(target)
+          }
+        } catch (e) {}
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
   </html>
-
